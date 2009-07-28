@@ -1,3 +1,6 @@
 [aliases]
 avrlib hg "http://ratatanek.cz/hg/avrlib"
 
+[0421163ad4c5a19c08ae5188bc61936268f4b37b]
+b971b7fd91bb2e45474e74122c864f5bc5f121ca avrlib avrlib
+
