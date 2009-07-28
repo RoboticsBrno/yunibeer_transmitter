@@ -1,7 +1,7 @@
-#include "../avrlib/sync_usart.hpp"
-#include "../avrlib/usart1.hpp"
-#include "../avrlib/bootseq.hpp"
-#include "../avrlib/format.hpp"
+#include "avrlib/sync_usart.hpp"
+#include "avrlib/usart1.hpp"
+#include "avrlib/bootseq.hpp"
+#include "avrlib/format.hpp"
 using namespace avrlib;
 
 int16_t get_pot(int index)
