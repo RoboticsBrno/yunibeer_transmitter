@@ -384,7 +384,7 @@ int main()
 	bool connected = false;
 
 	timed_command_parser<timer_t> cmd_parser(timer, 2000);
-	timeout<timer_t> led_timeout(timer, 15000);
+	timeout<timer_t> led_timeout(timer, 5000);
 
 	for (;;)
 	{
@@ -474,7 +474,7 @@ int main()
 						led3.red();
 					else
 						led3.green();
-					led_timeout.clear();
+					led_timeout.restart();
 				}
 				break;
 
@@ -492,7 +492,11 @@ int main()
 			led1.clear();
 			led2.clear();
 			led3.clear();
-			led_timeout.clear();
+
+			if (connected)
+				signaller.signal(5);
+
+			led_timeout.cancel();
 		}
 
 		if (timer.new_overflow())
