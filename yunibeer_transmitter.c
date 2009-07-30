@@ -1,10 +1,56 @@
-#include "avrlib/sync_usart.hpp"
+#include "avrlib/async_usart.hpp"
 #include "avrlib/usart1.hpp"
 #include "avrlib/bootseq.hpp"
 #include "avrlib/format.hpp"
 #include "avrlib/command_parser.hpp"
 #include "avrlib/eeprom.hpp"
+
+#include "avrlib/pin.hpp"
+#include "avrlib/portc.hpp"
 using namespace avrlib;
+
+template <typename Port1, int Pin1, typename Port2, int Pin2>
+struct led
+{
+	typedef avrlib::pin<Port1, Pin1> pin1;
+	typedef avrlib::pin<Port2, Pin2> pin2;
+
+	led()
+	{
+		pin1::output(true);
+		pin2::output(true);
+	}
+
+	~led()
+	{
+		pin1::output(false);
+		pin2::output(false);
+	}
+	
+	static void clear()
+	{
+		pin1::clear();
+		pin2::clear();
+	}
+
+	static void green()
+	{
+		pin1::set();
+		pin2::clear();
+	}
+
+	static void red()
+	{
+		pin1::clear();
+		pin2::set();
+	}
+};
+
+led<portc, 1, portc, 3> led0;
+led<portc, 0, portc, 2> led1;
+led<portc, 5, portc, 7> led2;
+led<portc, 4, portc, 6> led3;
+
 
 int16_t get_pot(int index)
 {
@@ -152,7 +198,7 @@ private:
 	bool m_active;
 };
 
-sync_usart<usart1, bootseq> rs232(38400);
+async_usart<usart1, 128, 128, bootseq> rs232(38400);
 
 repro_t repro;
 signaller_t<timer_t, repro_t> signaller(timer, repro);
@@ -160,6 +206,7 @@ signaller_t<timer_t, repro_t> signaller(timer, repro);
 void process()
 {
 	signaller.process();
+	rs232.process();
 }
 
 template <typename Timer>
@@ -257,13 +304,17 @@ bool connect(uint8_t addr[6])
 {
 	stopwatch<timer_t> st(timer);
 	while (st() < 17000)
-		PORTC ^= (1<<5)|(1<<7);
+	{
+		process();
+	}
 
 	send(rs232, "///");
 	
 	st.clear();
 	while (st() < 17000)
-		PORTC ^= (1<<5)|(1<<7);
+	{
+		process();
+	}
 
 	send(rs232, "AT*ADNRP=1,0\r");
 	send(rs232, "AT*ADDCP=0,0\r");
@@ -286,13 +337,17 @@ bool disconnect()
 {
 	stopwatch<timer_t> st(timer);
 	while (st() < 17000)
-		PORTC ^= (1<<5)|(1<<7);
+	{
+		process();
+	}
 
 	send(rs232, "///");
 	
 	st.clear();
 	while (st() < 17000)
-		PORTC ^= (1<<5)|(1<<7);
+	{
+		process();
+	}
 
 	send(rs232, "AT*ADNRP=0,0\r");
 	send(rs232, "AT*ADDM\r");
@@ -317,13 +372,11 @@ int main()
 
 	int send_state = 0; // 0 -- silent, 1 -- text, 2 -- binary
 	
-	DDRC = (1<<5)|(1<<7);
-	PORTC = (1<<5);
-
 	wait(timer, 1562);
 
 	if (get_buttons() & (1<<0))
 	{
+		DDRC = (1<<5)|(1<<7);
 		PORTC = (1<<5);
 
 		wait(timer, 4000);
@@ -351,10 +404,7 @@ int main()
 		}
 
 		for (;;)
-		{
-			if (!rs232.empty())
-				rs232.read();
-		}
+			process();
 	}
 
 	bool connected = false;
@@ -365,24 +415,15 @@ int main()
 	{
 		if (!connected && (get_buttons() & 4) != 0)
 		{
-			PORTC = (1<<5);
-
 			uint8_t addr[6];
 			load_eeprom(1 + 6 * get_target_no(), addr, 6);
 			connect(addr);
-
-			PORTC = (1<<7);
-
 			connected = true;
 		}
 
 		if (connected && (get_buttons() & 4) == 0)
 		{
-			PORTC = (1<<5);
-
 			disconnect();
-			PORTC = (1<<7);
-
 			connected = false;
 		}
 
@@ -391,59 +432,81 @@ int main()
 			uint8_t ch = rs232.read();
 			switch (cmd_parser.push_data(ch))
 			{
-			case command_parser::simple_command:
+			case '1':
+				send_state = 1;
+				break;
+			case '2':
+				send_state = 2;
+				PORTC ^= (1<<5)|(1<<7);
+				break;
+			case '?':
+				send_state = 0;
+				send(rs232, "'1' -- text, '2' -- binary\r\n");
+				break;
+			case 'r':
+				signaller.signal(3, 4000, 3000);
+				break;
+			case 'R':
+				repro.clear();
+				break;
+			case 'p':
 				{
-					switch (cmd_parser[0])
+					uint8_t addr[6];
+					for (int j = 0; j < 4; ++j)
 					{
-					case '1':
-						send_state = 1;
-						break;
-					case '2':
-						send_state = 2;
-						PORTC ^= (1<<5)|(1<<7);
-						break;
-					case '?':
-						send_state = 0;
-						send(rs232, "'1' -- text, '2' -- binary\r\n");
-						break;
-					case 'r':
-						signaller.signal(3, 4000, 3000);
-						break;
-					case 'R':
-						repro.clear();
-						break;
-					case 'p':
+						load_eeprom(1 + 6 * j, addr, 6);
+						for (int i = 0; i < 6; ++i)
 						{
-							uint8_t addr[6];
-							for (int j = 0; j < 4; ++j)
-							{
-								load_eeprom(1 + 6 * j, addr, 6);
-								for (int i = 0; i < 6; ++i)
-								{
-									char const digits[] = "0123456789abcdef";
+							char const digits[] = "0123456789abcdef";
 
-									rs232.write(digits[addr[i] >> 4]);
-									rs232.write(digits[addr[i] & 0x0f]);
-								}
-								send(rs232, "\r\n");
-							}
+							rs232.write(digits[addr[i] >> 4]);
+							rs232.write(digits[addr[i] & 0x0f]);
 						}
-						break;
-					default:
-						send_state = 0;
+						send(rs232, "\r\n");
 					}
 				}
 				break;
-			case command_parser::ready:
-				send_state = 0;
+
+			case 't':
+				rs232.write('t');
+				led0.red();
 				break;
 
-			case command_parser::bad:
-				send_state = 0;
+			case 'T':
+				rs232.write('T');
+				led0.green();
+				break;
+
+			case 8:
+				if (cmd_parser.size() > 0)
+				{
+					if (cmd_parser[0] & (1<<0))
+						led0.red();
+					else
+						led0.green();
+
+					if (cmd_parser[0] & (1<<1))
+						led1.red();
+					else
+						led1.green();
+
+					if (cmd_parser[0] & (1<<2))
+						led2.red();
+					else
+						led2.green();
+
+					if (cmd_parser[0] & (1<<3))
+						led3.red();
+					else
+						led3.green();
+				}
+				break;
+
+			case 255:
 				break;
 
 			default:
-				;
+				send_state = 0;
 			}
 		}
 
@@ -455,7 +518,7 @@ int main()
 				rs232.write(0x19);
 				for (int i = 0; i < 4; ++i)
 					send_bin(rs232, get_pot(i));
-				send_bin(rs232, get_buttons() >> 4);
+				send_bin(rs232, (uint8_t)(get_buttons() >> 4));
 			}
 			else if (send_state == 1)
 			{
@@ -466,6 +529,6 @@ int main()
 			}
 		}
 
-		signaller.process();
+		process();
 	}
 }
