@@ -4,6 +4,7 @@
 #include "avrlib/format.hpp"
 #include "avrlib/command_parser.hpp"
 #include "avrlib/eeprom.hpp"
+#include "avrlib/stopwatch.hpp"
 
 #include "avrlib/pin.hpp"
 #include "avrlib/portc.hpp"
@@ -224,33 +225,6 @@ ISR(TIMER0_OVF_vect)
 	timer.process();
 }
 
-template <typename Timer>
-class stopwatch
-{
-public:
-	typedef typename Timer::time_type time_type;
-
-	explicit stopwatch(Timer const & timer)
-		: m_timer(timer)
-	{
-		this->clear();
-	}
-
-	void clear()
-	{
-		m_base = m_timer();
-	}
-
-	time_type operator()() const
-	{
-		return m_timer() - m_base;
-	}
-
-private:
-	Timer const & m_timer;
-	time_type m_base;
-};
-
 uint8_t from_hex_digit(uint8_t digit)
 {
 	if ('0' <= digit && digit <= '9')
@@ -410,6 +384,7 @@ int main()
 	bool connected = false;
 
 	timed_command_parser<timer_t> cmd_parser(timer, 2000);
+	timeout<timer_t> led_timeout(timer, 15000);
 
 	for (;;)
 	{
@@ -499,6 +474,7 @@ int main()
 						led3.red();
 					else
 						led3.green();
+					led_timeout.clear();
 				}
 				break;
 
@@ -508,6 +484,15 @@ int main()
 			default:
 				send_state = 0;
 			}
+		}
+
+		if (led_timeout)
+		{
+			led0.clear();
+			led1.clear();
+			led2.clear();
+			led3.clear();
+			led_timeout.clear();
 		}
 
 		if (timer.new_overflow())
