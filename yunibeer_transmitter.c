@@ -6,6 +6,7 @@
 #include "avrlib/eeprom.hpp"
 #include "avrlib/stopwatch.hpp"
 #include "avrlib/make_byte.hpp"
+#include "avrlib/adc.hpp"
 
 #include "avrlib/pin.hpp"
 #include "avrlib/portb.hpp"
@@ -59,28 +60,19 @@ pin<portb, 3> sw1;
 pin<portb, 5> sw2;
 pin<portb, 7> sw3;
 
+async_adc adcs[] = {
+	async_adc(4, true),
+	async_adc(5, false),
+	async_adc(6, false),
+	async_adc(7, false),
+	async_adc(0, false),
+};
+
+uint8_t current_adc = 0;
+
 int16_t get_pot(int index)
 {
-	static uint8_t const channels[] = { 4, 5, 6, 7 };
-	static bool const invert[] = { true, false, false, false };
-
-	ADMUX = (1<<ADLAR) | channels[index];
-	ADCSRA |= (1<<ADSC);
-	while ((ADCSRA & (1<<ADIF)) == 0)
-	{
-	}
-	ADCSRA |= (1<<ADSC);
-	while ((ADCSRA & (1<<ADIF)) == 0)
-	{
-	}
-
-	uint16_t res = ADCL;
-	res |= ADCH << 8;
-
-	if (invert[index])
-		res = -res;
-
-	return int16_t(res - 0x8000);
+	return int16_t(adcs[index].value() - 0x8000);
 }
 
 uint8_t get_buttons()
@@ -342,9 +334,6 @@ uint8_t get_target_no()
 
 int main()
 {
-	send_bin(rs232, make_byte(sw0.value(), sw1.value(), sw2.value(), sw3.value()));
-
-
 	sei();
 
 	DDRB = 0;
@@ -525,6 +514,14 @@ int main()
 				send_int(rs232, get_buttons(), 5);
 				send(rs232, "\r\n");
 			}
+		}
+
+		if (adcs[current_adc].process())
+		{
+			if (++current_adc == 5)
+				current_adc = 0;
+
+			adcs[current_adc].start();
 		}
 
 		process();
