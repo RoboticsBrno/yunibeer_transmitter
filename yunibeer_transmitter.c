@@ -5,8 +5,10 @@
 #include "avrlib/command_parser.hpp"
 #include "avrlib/eeprom.hpp"
 #include "avrlib/stopwatch.hpp"
+#include "avrlib/make_byte.hpp"
 
 #include "avrlib/pin.hpp"
+#include "avrlib/portb.hpp"
 #include "avrlib/portc.hpp"
 using namespace avrlib;
 
@@ -52,6 +54,10 @@ led<portc, 0, portc, 2> led1;
 led<portc, 5, portc, 7> led2;
 led<portc, 4, portc, 6> led3;
 
+pin<portb, 1> sw0;
+pin<portb, 3> sw1;
+pin<portb, 5> sw2;
+pin<portb, 7> sw3;
 
 int16_t get_pot(int index)
 {
@@ -336,6 +342,9 @@ uint8_t get_target_no()
 
 int main()
 {
+	send_bin(rs232, make_byte(sw0.value(), sw1.value(), sw2.value(), sw3.value()));
+
+
 	sei();
 
 	DDRB = 0;
@@ -507,7 +516,7 @@ int main()
 				rs232.write(0x19);
 				for (int i = 0; i < 4; ++i)
 					send_bin(rs232, get_pot(i));
-				send_bin(rs232, (uint8_t)(get_buttons() >> 4));
+				send_bin(rs232, make_byte(sw0.value(), sw1.value(), sw2.value(), sw3.value()));
 			}
 			else if (send_state == 1)
 			{
