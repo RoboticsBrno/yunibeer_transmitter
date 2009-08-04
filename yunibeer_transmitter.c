@@ -383,6 +383,7 @@ int main()
 
 	timed_command_parser<timer_t> cmd_parser(timer, 2000);
 	timeout<timer_t> led_timeout(timer, 5000);
+	timeout<timer_t> low_battery_timeout(timer, 300000);
 
 	for (;;)
 	{
@@ -448,6 +449,11 @@ int main()
 			case 'T':
 				rs232.write('T');
 				led0.green();
+				break;
+
+			case 'b':
+				send_int(rs232, adcs[4].value());
+				send(rs232, "\r\n");
 				break;
 
 			case 8:
@@ -522,6 +528,12 @@ int main()
 				current_adc = 0;
 
 			adcs[current_adc].start();
+		}
+
+		if (adcs[4].value() < 39322 && low_battery_timeout)
+		{
+			signaller.signal(3, 1500, 1000);
+			low_battery_timeout.restart();
 		}
 
 		process();
