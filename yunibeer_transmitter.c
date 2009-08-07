@@ -374,6 +374,8 @@ int main()
 
 	timed_command_parser<timer_t> cmd_parser(timer, 2000);
 	timeout<timer_t> led_timeout(timer, 7000);
+	led_timeout.cancel();
+
 	timeout<timer_t> low_battery_timeout(timer, 300000);
 	timeout<timer_t> data_send_timeout(timer, 256);          // 16.384ms
 
