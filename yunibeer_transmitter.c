@@ -379,6 +379,8 @@ int main()
 	timeout<timer_t> low_battery_timeout(timer, 300000);
 	timeout<timer_t> data_send_timeout(timer, 256);          // 16.384ms
 
+	signaller.signal(1, 1500);
+
 	for (;;)
 	{
 		if (!connected && (get_buttons() & 4) != 0)
