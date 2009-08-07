@@ -85,7 +85,7 @@ struct timer_t
 	typedef uint32_t time_type;
 
 	timer_t()
-		: m_overflows(0), m_new_overflow(false)
+		: m_overflows(0)
 	{
 		TCCR0 = (1<<CS02)|(1<<CS01)|(1<<CS00);
 		TIMSK |= (1<<TOIE0);
@@ -94,7 +94,6 @@ struct timer_t
 	void process()
 	{
 		++m_overflows;
-		m_new_overflow = true;
 	}
 
 	time_type operator()() const
@@ -110,16 +109,7 @@ struct timer_t
 		}
 	}
 
-	bool new_overflow()
-	{
-		bool res = m_new_overflow;
-		if (res)
-			m_new_overflow = false;
-		return res;
-	}
-
 	uint16_t volatile m_overflows;
-	bool volatile m_new_overflow;
 } timer;
 
 
@@ -205,7 +195,8 @@ signaller_t<timer_t, repro_t> signaller(timer, repro);
 void process()
 {
 	signaller.process();
-	rs232.process();
+	rs232.process_rx();
+	rs232.process_tx();
 }
 
 template <typename Timer>
@@ -382,8 +373,9 @@ int main()
 	bool connected = false;
 
 	timed_command_parser<timer_t> cmd_parser(timer, 2000);
-	timeout<timer_t> led_timeout(timer, 5000);
+	timeout<timer_t> led_timeout(timer, 7000);
 	timeout<timer_t> low_battery_timeout(timer, 300000);
+	timeout<timer_t> data_send_timeout(timer, 256);          // 16.384ms
 
 	for (;;)
 	{
@@ -503,8 +495,10 @@ int main()
 			led_timeout.cancel();
 		}
 
-		if (timer.new_overflow())
+		if (data_send_timeout)
 		{
+			data_send_timeout.restart();
+
 			if (connected || send_state == 2)
 			{
 				rs232.write(0x80);
