@@ -108,6 +108,7 @@ struct timer_t
 			tcnt = tcnt2;
 		}
 	}
+	time_type value() const { return this->operator()(); }
 
 	uint16_t volatile m_overflows;
 } timer;
@@ -187,7 +188,7 @@ private:
 	bool m_active;
 };
 
-async_usart<usart1, 128, 128, bootseq> rs232(38400);
+async_usart<usart1, 128, 128, bootseq> rs232(38400UL);
 
 repro_t repro;
 signaller_t<timer_t, repro_t> signaller(timer, repro);
