@@ -10,8 +10,10 @@
 #include "avrlib/math.hpp"
 
 #include "avrlib/pin.hpp"
+#include "avrlib/porta.hpp"
 #include "avrlib/portb.hpp"
 #include "avrlib/portc.hpp"
+#include "avrlib/portg.hpp"
 
 #include <string.h>
 using namespace avrlib;
@@ -51,17 +53,33 @@ struct led
 		pin1::clear();
 		pin2::set();
 	}
+	
+	static void toggle()
+	{
+		pin1::toggle();
+		pin2::toggle();
+	}
 };
 
-led<portc, 1, portc, 3> led0;
-led<portc, 0, portc, 2> led1;
-led<portc, 5, portc, 7> led2;
-led<portc, 4, portc, 6> led3;
+led<portc, 1, portc, 3> led6;//
+led<portc, 0, portc, 2> led7;//
+led<portc, 5, portc, 7> led4;//
+led<portc, 4, portc, 6> led5;//
+
+led<porta, 1, porta, 3> led2;//
+led<porta, 0, porta, 2> led3;//
+led<porta, 7, portg, 0> led0;//
+led<porta, 6, portg, 1> led1;//
 
 pin<portb, 1> sw0;
 pin<portb, 3> sw1;
 pin<portb, 5> sw2;
 pin<portb, 7> sw3;
+
+pin<portb, 6> sw4;
+pin<portb, 4> sw5;
+pin<portb, 2> sw6;
+pin<portb, 0> sw7;
 
 async_adc adcs[] = {
 	async_adc(4, true),
@@ -357,13 +375,6 @@ void send_lego(Stream & s, char const * title, const bool& value)
 }
 
 template <typename Stream>
-void send_lego(Stream & s, char const * title, const int32_t& value)
-{
-	send_lego_header(s, title, 4);
-	send_bin(s, value);
-}
-
-template <typename Stream>
 void send_lego(Stream & s, char const * title, const float& value)
 {
 	send_lego_header(s, title, 4);
@@ -379,6 +390,70 @@ void send_lego(Stream & s, char const * title, char const * value)
 	s.write(0);
 }
 
+void sw_led_test()
+{
+	send(rs232, sw0.read() ? "1" : "0");
+	send(rs232, sw1.read() ? "1" : "0");
+	send(rs232, sw2.read() ? "1" : "0");
+	send(rs232, sw3.read() ? "1" : "0");
+	send(rs232, sw4.read() ? "1" : "0");
+	send(rs232, sw5.read() ? "1" : "0");
+	send(rs232, sw6.read() ? "1" : "0");
+	send(rs232, sw7.read() ? "1" : "0");
+	send(rs232, "\n");
+	rs232.flush();
+	
+	uint32_t wait_time = 16384>>1;
+	
+	led0.green();
+	wait(timer, wait_time);
+	led0.red();
+	wait(timer, wait_time);
+	led0.clear();
+	
+	led1.green();
+	wait(timer, wait_time);
+	led1.red();
+	wait(timer, wait_time);
+	led1.clear();
+	
+	led2.green();
+	wait(timer, wait_time);
+	led2.red();
+	wait(timer, wait_time);
+	led2.clear();
+	
+	led3.green();
+	wait(timer, wait_time);
+	led3.red();
+	wait(timer, wait_time);
+	led3.clear();
+	
+	led4.green();
+	wait(timer, wait_time);
+	led4.red();
+	wait(timer, wait_time);
+	led4.clear();
+	
+	led5.green();
+	wait(timer, wait_time);
+	led5.red();
+	wait(timer, wait_time);
+	led5.clear();
+	
+	led6.green();
+	wait(timer, wait_time);
+	led6.red();
+	wait(timer, wait_time);
+	led6.clear();
+	
+	led7.green();
+	wait(timer, wait_time);
+	led7.red();
+	wait(timer, wait_time);
+	led7.clear();
+}
+
 int main()
 {
 	sei();
@@ -388,8 +463,6 @@ int main()
 	PORTF = 0;
 	
 	ADCSRA = (1<<ADEN)|(1<<ADPS2)|(1<<ADPS1)|(1<<ADPS0);
-
-	int send_state = 0; // 0 -- silent, 1 -- text, 2 -- binary, 3 -- PIC interface, 4 -- LEGO protocol
 	
 	wait(timer, 1562);
 
@@ -425,6 +498,26 @@ int main()
 		for (;;)
 			process();
 	}
+	
+	int send_state = get_target_no() + 1; // 0 -- silent, 1 -- text, 2 -- binary, 3 -- PIC interface, 4 -- LEGO protocol
+	uint32_t data_send_timeout_time = 256; // 16.384ms
+	
+	switch(send_state)
+	{
+	case 1:
+		led0.green();
+		break;
+	case 2:
+		led1.green();
+		break;
+	case 3:
+		led2.green();
+		break;
+	case 4:
+		led3.green();
+		data_send_timeout_time = 256*3; // 16.384ms * 3
+		break;
+	}
 
 	bool connected = false;
 	bool force_send = false;
@@ -434,9 +527,17 @@ int main()
 	led_timeout.cancel();
 
 	timeout<timer_t> low_battery_timeout(timer, 300000);
-	timeout<timer_t> data_send_timeout(timer, 256);          // 16.384ms
+	timeout<timer_t> data_send_timeout(timer, data_send_timeout_time);
 
 	signaller.signal(1, 1500);
+	
+	wait(timer, 8192, process);
+	led0.clear();
+	led1.clear();
+	led2.clear();
+	led3.clear();
+
+	int32_t cnt = 0;
 
 	for (;;)
 	{
@@ -446,6 +547,7 @@ int main()
 			load_eeprom(1 + 6 * get_target_no(), addr, 6);
 			connect(addr);
 			connected = true;
+			cnt = 0;
 		}
 
 		if (connected && (get_buttons() & 4) == 0)
@@ -459,6 +561,9 @@ int main()
 			uint8_t ch = rs232.read();
 			switch (cmd_parser.push_data(ch))
 			{
+			case 'n':
+				rs232.write('\n');
+				break;
 			case '1':
 				send(rs232, "text\n");
 				send_state = 1;
@@ -481,7 +586,6 @@ int main()
 				force_send = true;
 				break;
 			case '?':
-				send_state = 0;
 				force_send = false;
 				send(rs232, "'1' -- text, '2' -- binary, 3 -- PIC interface, 4 -- LEGO protocol\r\n");
 				break;
@@ -508,6 +612,47 @@ int main()
 					}
 				}
 				break;
+			case 'P':
+			{
+				uint8_t mac[6] = {0};
+				send(rs232, "insert address index (0 - 3): ");
+				rs232.flush();
+				uint8_t addr = rs232.read()-'0';
+				if(addr > 3)
+				{
+					send(rs232, "invalid position\n");
+					rs232.flush();
+					break;
+				}
+				format(rs232, "% \ninsert address: ") % addr;
+				rs232.flush();
+				for(uint8_t i = 0; i != 12; ++i)
+				{
+					uint8_t digit = rs232.read();
+					if(digit >= '0' && digit <= '9')
+						mac[i>>1] |= digit - '0';
+					else if(digit >= 'a' && digit <= 'f')
+						mac[i>>1] |= digit - 'a' + 10;
+					else if(digit >= 'A' && digit <= 'F')
+						mac[i>>1] |= digit - 'A' + 10;
+					else
+					{
+						send(rs232, " invalid character\n");
+						rs232.flush();
+						addr = 255;
+						break;
+					}
+					if((i & 1) == 0)
+						mac[i>>1] <<= 4;
+					rs232.write(digit);
+					rs232.flush();
+				}
+				if(addr != 255)
+					store_eeprom(1 + 6 * addr, mac, 6);
+				send(rs232, "\ndone\n\n");
+				rs232.flush();
+			}
+			break;
 
 			case 't':
 				rs232.write('t');
@@ -523,29 +668,33 @@ int main()
 				send_int(rs232, adcs[4].value());
 				send(rs232, "\r\n");
 				break;
+				
+			case 's':
+				sw_led_test();
+				break;
 
 			case 8:
 				if (cmd_parser.size() > 0)
 				{
 					if (cmd_parser[0] & (1<<0))
-						led0.red();
+						led4.red();
 					else
-						led0.green();
+						led4.green();
 
 					if (cmd_parser[0] & (1<<1))
-						led1.red();
+						led5.red();
 					else
-						led1.green();
+						led5.green();
 
 					if (cmd_parser[0] & (1<<2))
-						led2.red();
+						led6.red();
 					else
-						led2.green();
+						led6.green();
 
 					if (cmd_parser[0] & (1<<3))
-						led3.red();
+						led7.red();
 					else
-						led3.green();
+						led7.green();
 					led_timeout.restart();
 				}
 				break;
@@ -554,16 +703,16 @@ int main()
 				break;
 
 			default:
-				send_state = 0;
+				force_send = false;
 			}
 		}
 
 		if (led_timeout)
 		{
-			led0.clear();
-			led1.clear();
-			led2.clear();
-			led3.clear();
+			led4.clear();
+			led5.clear();
+			led6.clear();
+			led7.clear();
 
 			if (connected)
 				signaller.signal(5);
@@ -579,6 +728,12 @@ int main()
 			{
 				switch(send_state)
 				{
+				case 1:
+					for (int i = 0; i < 4; ++i)
+						send_int(rs232, get_pot(i), 7);
+					send_int(rs232, get_buttons(), 5);
+					send(rs232, "\r\n");
+					break;
 				case 2:
 					rs232.write(0x80);
 					rs232.write(0x19);
@@ -591,18 +746,14 @@ int main()
 					for (int i = 0; i < 4; ++i)
 						send_bin(rs232, avrlib::clamp(uint8_t(128+(get_pot(i)>>8)), 0, 254));
 					break;
-				case 1:
-					for (int i = 0; i < 4; ++i)
-						send_int(rs232, get_pot(i), 7);
-					send_int(rs232, get_buttons(), 5);
-					send(rs232, "\r\n");
-					break;
 				case 4:
-					send_lego(rs232, "axis_0", int32_t(get_pot(0)));
-					send_lego(rs232, "axis_1", int32_t(get_pot(0)));
-					send_lego(rs232, "axis_2", int32_t(get_pot(0)));
-					send_lego(rs232, "axis_3", int32_t(get_pot(0)));
-					send_lego(rs232, "buttons", int32_t(make_byte(sw0.value(), sw1.value(), sw2.value(), sw3.value())));
+					send_lego(rs232, "axis_0", float(get_pot(0)));
+					send_lego(rs232, "axis_1", float(get_pot(1)));
+					send_lego(rs232, "axis_2", float(get_pot(2)));
+					send_lego(rs232, "axis_3", float(get_pot(3)));
+					send_lego(rs232, "buttons", float(make_byte(sw0.value(), sw1.value(), sw2.value(), sw3.value())));
+					send_lego(rs232, "cnt", float(cnt));
+					++cnt;
 					break;
 				}
 			}
