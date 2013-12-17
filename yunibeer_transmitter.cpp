@@ -588,6 +588,7 @@ int main()
 			case '?':
 				force_send = false;
 				send(rs232, "'1' -- text, '2' -- binary, 3 -- PIC interface, 4 -- LEGO protocol\r\n");
+				format(rs232, "selected: % \n") % send_state;
 				break;
 			case 'r':
 				signaller.signal(3, 4000, 3000);
@@ -747,7 +748,7 @@ int main()
 						send_bin(rs232, avrlib::clamp(uint8_t(128+(get_pot(i)>>8)), 0, 254));
 					break;
 				case 4:
-					send_lego(rs232, "axis_0", float(get_pot(0)));
+					send_lego(rs232, "axis_0", float(-get_pot(0)));
 					send_lego(rs232, "axis_1", float(get_pot(1)));
 					send_lego(rs232, "axis_2", float(get_pot(2)));
 					send_lego(rs232, "axis_3", float(get_pot(3)));
