@@ -390,8 +390,9 @@ void send_lego(Stream & s, char const * title, char const * value)
 	s.write(0);
 }
 
-void sw_led_test()
+void sw_test()
 {
+	send(rs232, "sw0-7:\n");
 	send(rs232, sw0.read() ? "1" : "0");
 	send(rs232, sw1.read() ? "1" : "0");
 	send(rs232, sw2.read() ? "1" : "0");
@@ -401,8 +402,17 @@ void sw_led_test()
 	send(rs232, sw6.read() ? "1" : "0");
 	send(rs232, sw7.read() ? "1" : "0");
 	send(rs232, "\n");
+	send(rs232, "get_buttons:\n");
+	send_bin_text(rs232, get_buttons(), 8);
+	send(rs232, "\n");
+	send(rs232, "get_target_no:\n");
+	send_int(rs232, get_target_no());
+	send(rs232, "\n");
 	rs232.flush();
-	
+}
+
+void led_test()
+{
 	uint32_t wait_time = 16384>>1;
 	
 	led0.green();
@@ -671,7 +681,11 @@ int main()
 				break;
 				
 			case 's':
-				sw_led_test();
+				sw_test();
+				break;
+			
+			case 'l':
+				led_test();
 				break;
 
 			case 8:
@@ -748,11 +762,14 @@ int main()
 						send_bin(rs232, avrlib::clamp(uint8_t(128+(get_pot(i)>>8)), 0, 254));
 					break;
 				case 4:
-					send_lego(rs232, "axis_0", float(-get_pot(0)));
-					send_lego(rs232, "axis_1", float(get_pot(1)));
-					send_lego(rs232, "axis_2", float(get_pot(2)));
-					send_lego(rs232, "axis_3", float(get_pot(3)));
-					send_lego(rs232, "buttons", float(make_byte(sw0.value(), sw1.value(), sw2.value(), sw3.value())));
+					send_lego(rs232, "a0", float(-get_pot(0)));
+					send_lego(rs232, "a1", float(get_pot(1)));
+					send_lego(rs232, "a2", float(get_pot(2)));
+					send_lego(rs232, "a3", float(get_pot(3)));
+					send_lego(rs232, "b0", sw0.read());
+					send_lego(rs232, "b1", sw1.read());
+					send_lego(rs232, "b2", sw2.read());
+					send_lego(rs232, "b3", sw3.read());
 					send_lego(rs232, "cnt", float(cnt));
 					++cnt;
 					break;
