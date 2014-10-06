@@ -754,7 +754,7 @@ int main()
 					rs232.write(0x19);
 					for (int i = 0; i < 4; ++i)
 						send_bin(rs232, get_pot(i));
-					send_bin(rs232, make_byte(sw0.value(), sw1.value(), sw2.value(), sw3.value()));
+					send_bin(rs232, make_byte(sw0.value(), sw1.value(), sw2.value(), sw3.value(), sw4.value(), sw5.value(), 0, sw7.value()));
 					break;
 				case 3:
 					rs232.write(0xFF);
@@ -762,10 +762,10 @@ int main()
 						send_bin(rs232, avrlib::clamp(uint8_t(128+(get_pot(i)>>8)), 0, 254));
 					break;
 				case 4:
-					send_lego(rs232, "a0", float(-get_pot(0)));
-					send_lego(rs232, "a1", float(get_pot(1)));
-					send_lego(rs232, "a2", float(get_pot(2)));
-					send_lego(rs232, "a3", float(get_pot(3)));
+					send_lego(rs232, "a0", float(-get_pot(0)/32767.0));
+					send_lego(rs232, "a1", float( get_pot(1)/32767.0));
+					send_lego(rs232, "a2", float( get_pot(2)/32767.0));
+					send_lego(rs232, "a3", float( get_pot(3)/32767.0));
 					send_lego(rs232, "b0", sw0.read());
 					send_lego(rs232, "b1", sw1.read());
 					send_lego(rs232, "b2", sw2.read());
