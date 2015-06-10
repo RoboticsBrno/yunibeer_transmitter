@@ -1,3 +1,7 @@
+#define HW_VERSION 2 // 1 = YUNIBEER, 2 = JAREK
+
+#include <avr/io.h>
+
 #include "avrlib/async_usart.hpp"
 #include "avrlib/usart1.hpp"
 #include "avrlib/bootseq.hpp"
@@ -13,92 +17,37 @@
 #include "avrlib/porta.hpp"
 #include "avrlib/portb.hpp"
 #include "avrlib/portc.hpp"
+#include "avrlib/portd.hpp"
+#include "avrlib/porte.hpp"
+#include "avrlib/portf.hpp"
 #include "avrlib/portg.hpp"
+
+#include "version_info.hpp"
 
 #include <string.h>
 using namespace avrlib;
 
-template <typename Port1, int Pin1, typename Port2, int Pin2>
-struct led
+struct led_base
 {
-	typedef avrlib::pin<Port1, Pin1> pin1;
-	typedef avrlib::pin<Port2, Pin2> pin2;
-
-	led()
-	{
-		pin1::output(true);
-		pin2::output(true);
-	}
-
-	~led()
-	{
-		pin1::output(false);
-		pin2::output(false);
-	}
-	
-	static void clear()
-	{
-		pin1::clear();
-		pin2::clear();
-	}
-
-	static void green()
-	{
-		pin1::set();
-		pin2::clear();
-	}
-
-	static void red()
-	{
-		pin1::clear();
-		pin2::set();
-	}
-	
-	static void toggle()
-	{
-		pin1::toggle();
-		pin2::toggle();
-	}
+	virtual void clear() {}
+	virtual void green() {}
+	virtual void red() {}
+	virtual void toggle() {}
 };
 
-led<portc, 1, portc, 3> led6;//
-led<portc, 0, portc, 2> led7;//
-led<portc, 5, portc, 7> led4;//
-led<portc, 4, portc, 6> led5;//
-
-led<porta, 1, porta, 3> led2;//
-led<porta, 0, porta, 2> led3;//
-led<porta, 7, portg, 0> led0;//
-led<porta, 6, portg, 1> led1;//
-
-pin<portb, 1> sw0;
-pin<portb, 3> sw1;
-pin<portb, 5> sw2;
-pin<portb, 7> sw3;
-
-pin<portb, 6> sw4;
-pin<portb, 4> sw5;
-pin<portb, 2> sw6;
-pin<portb, 0> sw7;
-
-async_adc adcs[] = {
-	async_adc(4, true),
-	async_adc(5, false),
-	async_adc(6, false),
-	async_adc(7, false),
-	async_adc(0, false),
-};
+#if HW_VERSION == 1
+	#include "hw_def_yunibeer.hpp"
+#elif HW_VERSION == 2
+	#include "hw_def_jarek.hpp"
+#else
+	#error "Unknown HW_VERSION"
+#endif
 
 uint8_t current_adc = 0;
 
 int16_t get_pot(int index)
 {
 	return int16_t(adcs[index].value() - 0x8000);
-}
-
-uint8_t get_buttons()
-{
-	return PINB;
 }
 
 struct timer_t
@@ -407,109 +356,89 @@ void sw_test()
 	send(rs232, "\n");
 	send(rs232, "get_target_no:\n");
 	send_int(rs232, get_target_no());
-	send(rs232, "\n");
+	send(rs232, "\n\n");
 	rs232.flush();
 }
 
 void led_test()
 {
 	uint32_t wait_time = 16384>>1;
-	
-	led0.green();
-	wait(timer, wait_time);
-	led0.red();
-	wait(timer, wait_time);
-	led0.clear();
-	
-	led1.green();
-	wait(timer, wait_time);
-	led1.red();
-	wait(timer, wait_time);
-	led1.clear();
-	
-	led2.green();
-	wait(timer, wait_time);
+	led_base* led[8] = { &led0, &led1, &led2, &led3, &led4, &led5, &led6, &led7 };
+	for(uint8_t i = 0; i != 8; ++i)
+	{
+		led[i]->green();
+		format(rs232, "led% .green\n") % i;
+		rs232.flush();
+		wait(timer, wait_time);
+		led[i]->red();
+		format(rs232, "led% .red\n") % i;
+		rs232.flush();
+		wait(timer, wait_time);
+		led[i]->clear();
+	}
+}
+
+bool learn()
+{
 	led2.red();
-	wait(timer, wait_time);
-	led2.clear();
-	
-	led3.green();
-	wait(timer, wait_time);
-	led3.red();
-	wait(timer, wait_time);
-	led3.clear();
-	
-	led4.green();
-	wait(timer, wait_time);
-	led4.red();
-	wait(timer, wait_time);
-	led4.clear();
-	
-	led5.green();
-	wait(timer, wait_time);
-	led5.red();
-	wait(timer, wait_time);
-	led5.clear();
-	
-	led6.green();
-	wait(timer, wait_time);
-	led6.red();
-	wait(timer, wait_time);
-	led6.clear();
-	
-	led7.green();
-	wait(timer, wait_time);
-	led7.red();
-	wait(timer, wait_time);
-	led7.clear();
+
+	wait(timer, 4000);
+	signaller.signal(2);
+	while (get_buttons() & (1<<0))
+	{
+		if(!rs232.empty() && rs232.read() == 'M')
+		{
+			led2.clear();
+			return false;
+		}
+		process();
+	}
+
+	wait(timer, 4000);
+	signaller.signal(1);
+	while ((get_buttons() & (1<<0)) == 0)
+		process();
+
+	wait(timer, 4000);
+	signaller.signal(1);
+
+	uint8_t addr[6];
+	if (!get_bt_addr(addr))
+	{
+		led2.green();
+	}
+	else
+	{
+		led2.red();
+		store_eeprom(1 + 6 * get_target_no(), addr, 6);
+	}
+
+	for (;;)
+		process();
 }
 
 int main()
 {
 	sei();
 
-	DDRB = 0;
-	PORTB = 0xff;
-	PORTF = 0;
+	hw_init();
 	
 	ADCSRA = (1<<ADEN)|(1<<ADPS2)|(1<<ADPS1)|(1<<ADPS0);
 	
 	wait(timer, 1562);
 
+	bool test_mode = false;
+
 	if (get_buttons() & (1<<0))
 	{
-		DDRC = (1<<5)|(1<<7);
-		PORTC = (1<<5);
-
-		wait(timer, 4000);
-		signaller.signal(2);
-		while (get_buttons() & (1<<0))
-			process();
-
-		wait(timer, 4000);
-		signaller.signal(1);
-		while ((get_buttons() & (1<<0)) == 0)
-			process();
-
-		wait(timer, 4000);
-		signaller.signal(1);
-
-		uint8_t addr[6];
-		if (!get_bt_addr(addr))
+		if(!learn())
 		{
-			PORTC = (1<<5);
+			test_mode = true;
+			send(rs232, "test mode\n");
 		}
-		else
-		{
-			PORTC = (1<<7);
-			store_eeprom(1 + 6 * get_target_no(), addr, 6);
-		}
-
-		for (;;)
-			process();
 	}
 	
-	int send_state = get_target_no() + 1; // 0 -- silent, 1 -- text, 2 -- binary, 3 -- PIC interface, 4 -- LEGO protocol
+	int send_state = test_mode ? 0 : (get_target_no() + 1); // 0 -- silent, 1 -- text, 2 -- binary, 3 -- PIC interface, 4 -- LEGO protocol
 	uint32_t data_send_timeout_time = 256; // 16.384ms
 	
 	switch(send_state)
@@ -551,7 +480,7 @@ int main()
 
 	for (;;)
 	{
-		if (!connected && (get_buttons() & 4) != 0)
+		if (!test_mode && !connected && (get_buttons() & 4) != 0)
 		{
 			uint8_t addr[6];
 			load_eeprom(1 + 6 * get_target_no(), addr, 6);
@@ -560,7 +489,7 @@ int main()
 			cnt = 0;
 		}
 
-		if (connected && (get_buttons() & 4) == 0)
+		if (!test_mode && connected && (get_buttons() & 4) == 0)
 		{
 			disconnect();
 			connected = false;
@@ -597,8 +526,9 @@ int main()
 				break;
 			case '?':
 				force_send = false;
-				send(rs232, "'1' -- text, '2' -- binary, 3 -- PIC interface, 4 -- LEGO protocol\r\n");
-				format(rs232, "selected: % \n") % send_state;
+				format(rs232, "Yunibeer transmitter\n\t% \n\t% \n\t\tselected: % \n") % build_info %
+					"'1' -- text, '2' -- binary, 3 -- PIC interface, 4 -- LEGO protocol\r\n" %
+					send_state;
 				break;
 			case 'r':
 				signaller.signal(3, 4000, 3000);
@@ -687,6 +617,17 @@ int main()
 			case 'l':
 				led_test();
 				break;
+				
+			case 'm':
+				if(test_mode)
+					send(rs232, "end of test mode\n");
+				test_mode = false;
+				break;
+				
+			case 'M':
+				send(rs232, "test mode\n");
+				test_mode = true;
+				break;
 
 			case 8:
 				if (cmd_parser.size() > 0)
@@ -762,15 +703,19 @@ int main()
 						send_bin(rs232, avrlib::clamp(uint8_t(128+(get_pot(i)>>8)), 0, 254));
 					break;
 				case 4:
-					send_lego(rs232, "a0", float(-get_pot(0)/32767.0));
-					send_lego(rs232, "a1", float( get_pot(1)/32767.0));
-					send_lego(rs232, "a2", float( get_pot(2)/32767.0));
-					send_lego(rs232, "a3", float( get_pot(3)/32767.0));
+					send_lego(rs232, "a0", float(get_pot(0)/32767.0));
+					#if HW_VERSION == 1
+						send_lego(rs232, "a1", float(-get_pot(1)/32767.0));
+					#else
+						send_lego(rs232, "a1", float(get_pot(1)/32767.0));
+					#endif
+					send_lego(rs232, "a2", float(get_pot(2)/32767.0));
+					send_lego(rs232, "a3", float(get_pot(3)/32767.0));
 					send_lego(rs232, "b0", sw0.read());
 					send_lego(rs232, "b1", sw1.read());
-					send_lego(rs232, "b2", sw2.read());
-					send_lego(rs232, "b3", sw3.read());
-					send_lego(rs232, "cnt", float(cnt));
+					//send_lego(rs232, "b2", sw2.read());
+					//send_lego(rs232, "b3", sw3.read());
+					//send_lego(rs232, "cnt", float(cnt));
 					++cnt;
 					break;
 				}
