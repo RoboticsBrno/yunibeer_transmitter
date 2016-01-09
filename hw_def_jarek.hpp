@@ -57,13 +57,19 @@ inv_pin<porte, 6> sw5;
 pin    <portb, 2> sw6;
 pin    <portb, 3> sw7;
 
-async_adc adcs[] = {
+static const uint8_t adc_channels = 5;
+
+async_adc adcs[adc_channels] = {
 	async_adc(1, true),
-	async_adc(2, false),
-	async_adc(0, false),
+	async_adc(2, true),
+	async_adc(0, true),
 	async_adc(3, false),
-	async_adc(6, false),
+	async_adc(6, false)
 };
+
+int16_t adc_offset[adc_channels] = { 17, -11, 14, -6, 0 };
+int16_t adc_gain_pos[adc_channels] = { 96, 110, 83, 101, 1 };
+int16_t adc_gain_neg[adc_channels] = { 107, 93, 122, 110, 1 };
 
 uint8_t get_buttons()
 {
