@@ -47,7 +47,11 @@ uint8_t current_adc = 0;
 
 int16_t get_pot(int index)
 {
-	return int16_t(adcs[index].value() - 0x8000);
+	int16_t v = (int16_t(adcs[index].value() - 0x8000)>>6) + adc_offset[index];
+	if(v > 0)
+		return v * adc_gain_pos[index];
+	else
+		return v * adc_gain_neg[index];
 }
 
 struct timer_t
@@ -188,9 +192,13 @@ ISR(TIMER0_OVF_vect)
 
 uint8_t from_hex_digit(uint8_t digit)
 {
-	if ('0' <= digit && digit <= '9')
+	if(digit >= '0' && digit <= '9')
 		return digit - '0';
-	return digit - 'a' + 10;
+	if(digit >= 'a' && digit <= 'f')
+		return digit - 'a' + 10;
+	if(digit >= 'A' && digit <= 'F')
+		return digit - 'A' + 10;
+	return 255;
 }
 
 bool get_bt_addr(uint8_t addr[6])
@@ -199,7 +207,7 @@ bool get_bt_addr(uint8_t addr[6])
 	while (st() < 17000)
 	{
 		process();
-		PORTC ^= (1<<5)|(1<<7);
+		led7.toggle();
 	}
 
 	send(rs232, "///");
@@ -208,7 +216,7 @@ bool get_bt_addr(uint8_t addr[6])
 	while (st() < 17000)
 	{
 		process();
-		PORTC ^= (1<<5)|(1<<7);
+		led7.toggle();
 	}
 
 	send(rs232, "AT*AILBA?\r");
@@ -289,10 +297,10 @@ bool disconnect()
 	return true;
 }
 
-uint8_t get_target_no()
+uint8_t get_target_no(const uint8_t& bank = 0)
 {
 	uint8_t btn = get_buttons();
-	return ((btn >> 4) & 1) | ((btn >> 5) & 2);
+	return (bank << 2) | ((btn >> 4) & 1) | ((btn >> 5) & 2);
 }
 
 template <typename Stream>
@@ -483,7 +491,7 @@ int main()
 		if (!test_mode && !connected && (get_buttons() & 4) != 0)
 		{
 			uint8_t addr[6];
-			load_eeprom(1 + 6 * get_target_no(), addr, 6);
+			load_eeprom(1 + 6 * get_target_no(send_state - 1), addr, 6);
 			connect(addr);
 			connected = true;
 			cnt = 0;
@@ -539,43 +547,44 @@ int main()
 			case 'p':
 				{
 					uint8_t addr[6];
-					for (int j = 0; j < 4; ++j)
+					char const digits[] = "0123456789ABCDEF";
+					for (int j = 0; j < 16; ++j)
 					{
+						rs232.write(digits[j]);
+						rs232.write(':');
+						rs232.write(' ');
 						load_eeprom(1 + 6 * j, addr, 6);
 						for (int i = 0; i < 6; ++i)
 						{
-							char const digits[] = "0123456789abcdef";
-
 							rs232.write(digits[addr[i] >> 4]);
 							rs232.write(digits[addr[i] & 0x0f]);
 						}
 						send(rs232, "\r\n");
+						if((j % 4) == 3)
+							send(rs232, "\r\n");
 					}
 				}
 				break;
 			case 'P':
 			{
 				uint8_t mac[6] = {0};
-				send(rs232, "insert address index (0 - 3): ");
+				send(rs232, "insert address index (0 - F): ");
 				rs232.flush();
-				uint8_t addr = rs232.read()-'0';
-				if(addr > 3)
+				uint8_t addr = from_hex_digit(rs232.read());
+				if(addr > 15)
 				{
 					send(rs232, "invalid position\n");
 					rs232.flush();
 					break;
 				}
-				format(rs232, "% \ninsert address: ") % addr;
+				format(rs232, "%x \ninsert address: ") % addr;
 				rs232.flush();
 				for(uint8_t i = 0; i != 12; ++i)
 				{
-					uint8_t digit = rs232.read();
-					if(digit >= '0' && digit <= '9')
-						mac[i>>1] |= digit - '0';
-					else if(digit >= 'a' && digit <= 'f')
-						mac[i>>1] |= digit - 'a' + 10;
-					else if(digit >= 'A' && digit <= 'F')
-						mac[i>>1] |= digit - 'A' + 10;
+					char ch = rs232.read();
+					uint8_t digit = from_hex_digit(ch);
+					if(digit != 255)
+						mac[i>>1] |= digit;
 					else
 					{
 						send(rs232, " invalid character\n");
@@ -585,7 +594,7 @@ int main()
 					}
 					if((i & 1) == 0)
 						mac[i>>1] <<= 4;
-					rs232.write(digit);
+					rs232.write(ch);
 					rs232.flush();
 				}
 				if(addr != 255)
@@ -687,7 +696,8 @@ int main()
 				case 1:
 					for (int i = 0; i < 4; ++i)
 						send_int(rs232, get_pot(i), 7);
-					send_int(rs232, get_buttons(), 5);
+					send(rs232, "  ");
+					send_hex(rs232, get_buttons(), 2);
 					send(rs232, "\r\n");
 					break;
 				case 2:
@@ -704,11 +714,7 @@ int main()
 					break;
 				case 4:
 					send_lego(rs232, "a0", float(get_pot(0)/32767.0));
-					#if HW_VERSION == 1
-						send_lego(rs232, "a1", float(-get_pot(1)/32767.0));
-					#else
-						send_lego(rs232, "a1", float(get_pot(1)/32767.0));
-					#endif
+					send_lego(rs232, "a1", float(get_pot(1)/32767.0));
 					send_lego(rs232, "a2", float(get_pot(2)/32767.0));
 					send_lego(rs232, "a3", float(get_pot(3)/32767.0));
 					send_lego(rs232, "b0", sw0.read());
@@ -724,7 +730,7 @@ int main()
 
 		if (adcs[current_adc].process())
 		{
-			if (++current_adc == 5)
+			if (++current_adc == adc_channels)
 				current_adc = 0;
 
 			adcs[current_adc].start();
