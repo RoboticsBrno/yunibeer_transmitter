@@ -3,6 +3,7 @@
 #include <avr/io.h>
 
 #include "avrlib/async_usart.hpp"
+#include "avrlib/usart0.hpp"
 #include "avrlib/usart1.hpp"
 #include "avrlib/bootseq.hpp"
 #include "avrlib/format.hpp"
@@ -43,15 +44,22 @@ struct led_base
 	#error "Unknown HW_VERSION"
 #endif
 
+static const uint16_t addr_eeprom_offset = 1;
+static const uint16_t calib_eeprom_offset = 512;
+
 uint8_t current_adc = 0;
 
-int16_t get_pot(int index)
+int16_t adc_offset[adc_channels] = { 0, 0, 0, 0, 0 };
+int16_t adc_gain_pos[adc_channels] = { 1, 1, 1, 1, 1 };
+int16_t adc_gain_neg[adc_channels] = { 1, 1, 1, 1, 1 };
+
+int16_t get_pot(int index, const bool& raw = false)
 {
-	int16_t v = (int16_t(adcs[index].value() - 0x8000)>>6) + adc_offset[index];
-	if(v > 0)
-		return v * adc_gain_pos[index];
-	else
-		return v * adc_gain_neg[index];
+	if(raw)
+		return adcs[index].value();
+	int32_t v = int16_t(adcs[index].value() - adc_offset[index]);
+	v *= *((v < 0 ? adc_gain_neg : adc_gain_pos) + index);
+	return clamp(v, -32767, 32767);
 }
 
 struct timer_t
@@ -297,10 +305,14 @@ bool disconnect()
 	return true;
 }
 
+uint8_t get_buttons()
+{
+	return make_byte(sw0.value(), sw1.value(), sw2.value(), sw3.value(), sw4.value(), sw5.value(), sw6.value(), sw7.value());
+}
+
 uint8_t get_target_no(const uint8_t& bank = 0)
 {
-	uint8_t btn = get_buttons();
-	return (bank << 2) | ((btn >> 4) & 1) | ((btn >> 5) & 2);
+	return (bank << 3) | make_byte(sw4.value(), sw5.value(), sw6.value());
 }
 
 template <typename Stream>
@@ -386,45 +398,6 @@ void led_test()
 	}
 }
 
-bool learn()
-{
-	led2.red();
-
-	wait(timer, 4000);
-	signaller.signal(2);
-	while (get_buttons() & (1<<0))
-	{
-		if(!rs232.empty() && rs232.read() == 'M')
-		{
-			led2.clear();
-			return false;
-		}
-		process();
-	}
-
-	wait(timer, 4000);
-	signaller.signal(1);
-	while ((get_buttons() & (1<<0)) == 0)
-		process();
-
-	wait(timer, 4000);
-	signaller.signal(1);
-
-	uint8_t addr[6];
-	if (!get_bt_addr(addr))
-	{
-		led2.green();
-	}
-	else
-	{
-		led2.red();
-		store_eeprom(1 + 6 * get_target_no(), addr, 6);
-	}
-
-	for (;;)
-		process();
-}
-
 int main()
 {
 	sei();
@@ -437,14 +410,6 @@ int main()
 
 	bool test_mode = false;
 
-	if (get_buttons() & (1<<0))
-	{
-		if(!learn())
-		{
-			test_mode = true;
-			send(rs232, "test mode\n");
-		}
-	}
 	
 	int send_state = test_mode ? 0 : (get_target_no() + 1); // 0 -- silent, 1 -- text, 2 -- binary, 3 -- PIC interface, 4 -- LEGO protocol
 	uint32_t data_send_timeout_time = 256; // 16.384ms
@@ -465,6 +430,10 @@ int main()
 		data_send_timeout_time = 256*3; // 16.384ms * 3
 		break;
 	}
+	
+	load_eeprom(calib_eeprom_offset +  0, (uint8_t*)adc_offset,   8);
+	load_eeprom(calib_eeprom_offset +  8, (uint8_t*)adc_gain_neg, 8);
+	load_eeprom(calib_eeprom_offset + 16, (uint8_t*)adc_gain_pos, 8);
 
 	bool connected = false;
 	bool force_send = false;
@@ -484,20 +453,21 @@ int main()
 	led2.clear();
 	led3.clear();
 
+	uint8_t mac_addr[6];
+
 	int32_t cnt = 0;
 
 	for (;;)
 	{
-		if (!test_mode && !connected && (get_buttons() & 4) != 0)
+		if (!test_mode && !connected && sw7.read())
 		{
-			uint8_t addr[6];
-			load_eeprom(1 + 6 * get_target_no(send_state - 1), addr, 6);
-			connect(addr);
+			load_eeprom(addr_eeprom_offset + 6 * get_target_no(send_state - 1), mac_addr, 6);
+			connect(mac_addr);
 			connected = true;
 			cnt = 0;
 		}
 
-		if (!test_mode && connected && (get_buttons() & 4) == 0)
+		if (!test_mode && connected && !sw7.read())
 		{
 			disconnect();
 			connected = false;
@@ -511,80 +481,97 @@ int main()
 			case 'n':
 				rs232.write('\n');
 				break;
+				
+			case '0':
+				send(rs232, "silent\n");
+				send_state = 0;
+				force_send = false;
+				break;
+				
 			case '1':
 				send(rs232, "text\n");
 				send_state = 1;
 				force_send = true;
 				break;
+				
 			case '2':
 				send(rs232, "bin\n");
 				send_state = 2;
 				PORTC ^= (1<<5)|(1<<7);
 				force_send = true;
 				break;
+				
 			case '3':
 				send(rs232, "PIC\n");
 				send_state = 3;
 				force_send = true;
 				break;
+				
 			case '4':
 				send(rs232, "LEGO\n");
 				send_state = 4;
 				force_send = true;
 				break;
+				
+			case '5':
+			case '6':
+			case '7':
+			case '8':
+				send(rs232, "This protocol was not implemented yet.\n");
+				send_state = 0;
+				force_send = false;
+				break;
+				
 			case '?':
 				force_send = false;
 				format(rs232, "Yunibeer transmitter\n\t% \n\t% \n\t\tselected: % \n") % build_info %
 					"'1' -- text, '2' -- binary, 3 -- PIC interface, 4 -- LEGO protocol\r\n" %
 					send_state;
 				break;
+				
 			case 'r':
 				signaller.signal(3, 4000, 3000);
 				break;
+				
 			case 'R':
 				repro.clear();
 				break;
+				
 			case 'p':
+				for (uint8_t j = 0; j != 64; ++j)
 				{
-					uint8_t addr[6];
-					char const digits[] = "0123456789ABCDEF";
-					for (int j = 0; j < 16; ++j)
-					{
-						rs232.write(digits[j]);
-						rs232.write(':');
-						rs232.write(' ');
-						load_eeprom(1 + 6 * j, addr, 6);
-						for (int i = 0; i < 6; ++i)
-						{
-							rs232.write(digits[addr[i] >> 4]);
-							rs232.write(digits[addr[i] & 0x0f]);
-						}
+					if((j % 8) == 0)
+						format(rs232, "\nProtocol % \n") % (j / 8);
+					else if((j % 4) == 0)
 						send(rs232, "\r\n");
-						if((j % 4) == 3)
-							send(rs232, "\r\n");
-					}
+					format(rs232, "%x2: ") % j;
+					load_eeprom(addr_eeprom_offset + 6 * j, mac_addr, 6);
+					for (uint8_t i = 0; i < 6; ++i)
+						send_hex(rs232, mac_addr[i], 2);
+					send(rs232, "\r\n");
 				}
 				break;
+				
 			case 'P':
 			{
-				uint8_t mac[6] = {0};
-				send(rs232, "insert address index (0 - F): ");
+				send(rs232, "insert address index (00 - 3F): ");
 				rs232.flush();
-				uint8_t addr = from_hex_digit(rs232.read());
-				if(addr > 15)
+				uint8_t addr = from_hex_digit(rs232.read())<<4;
+				addr |= from_hex_digit(rs232.read());
+				if(addr > 63)
 				{
 					send(rs232, "invalid position\n");
 					rs232.flush();
 					break;
 				}
-				format(rs232, "%x \ninsert address: ") % addr;
+				format(rs232, "%x2 \ninsert address: ") % addr;
 				rs232.flush();
 				for(uint8_t i = 0; i != 12; ++i)
 				{
 					char ch = rs232.read();
 					uint8_t digit = from_hex_digit(ch);
 					if(digit != 255)
-						mac[i>>1] |= digit;
+						mac_addr[i>>1] |= digit;
 					else
 					{
 						send(rs232, " invalid character\n");
@@ -593,12 +580,12 @@ int main()
 						break;
 					}
 					if((i & 1) == 0)
-						mac[i>>1] <<= 4;
+						mac_addr[i>>1] <<= 4;
 					rs232.write(ch);
 					rs232.flush();
 				}
 				if(addr != 255)
-					store_eeprom(1 + 6 * addr, mac, 6);
+					store_eeprom(addr_eeprom_offset + 6 * addr, mac_addr, 6);
 				send(rs232, "\ndone\n\n");
 				rs232.flush();
 			}
@@ -636,6 +623,75 @@ int main()
 			case 'M':
 				send(rs232, "test mode\n");
 				test_mode = true;
+				break;
+				
+			case 'C':
+				send(rs232, "Calibration mode:\n\tcenter all axes and then press space\n");
+				rs232.flush();
+				if(rs232.read() != ' ')
+				{
+					send(rs232, "Calibration canceled!\n");
+					break;
+				}
+				for(uint8_t i = 0; i != 2;)
+				{
+					if(adcs[current_adc].process())
+					{
+						if(++current_adc == adc_channels)
+						{
+							current_adc = 0;
+							++i;
+						}
+						adcs[current_adc].start();
+					}
+				}
+				for(uint8_t i = 0; i != 4; ++i)
+				{
+					adc_offset[i] = get_pot(i, true);
+					adc_gain_neg[i] =  32767;
+					adc_gain_pos[i] = -32768;
+				}
+				send(rs232, "\tmove all axes across full range and then press space\n");
+				rs232.flush();
+				while(rs232.empty())
+				{
+					if(adcs[current_adc].process())
+					{
+						if(++current_adc == adc_channels)
+						{
+							current_adc = 0;
+							for(uint8_t i = 0; i != 4; ++i)
+							{
+								int16_t v = get_pot(i, true) - adc_offset[i];
+								if(v < adc_gain_neg[i])
+									adc_gain_neg[i] = v;
+								if(v > adc_gain_pos[i])
+									adc_gain_pos[i] = v;
+								format(rs232, "%7 %7 %7 ") % adc_gain_neg[i] % v % adc_gain_pos[i];
+							}
+							send(rs232, "\r\n");
+							rs232.flush();
+						}
+						adcs[current_adc].start();
+					}
+					process();
+				}
+				if(rs232.read() != ' ')
+				{
+					send(rs232, "\tCalibration canceled!\n");
+					break;
+				}
+				for(uint8_t i = 0; i != 4; ++i)
+				{
+					adc_gain_neg[i] = 32767 / adc_gain_neg[i];
+					adc_gain_pos[i] = 32767 / adc_gain_pos[i];
+					format(rs232, "%7 %7 %7 ") % adc_gain_neg[i] % adc_offset[i] % adc_gain_pos[i];
+				}
+				send(rs232, "\r\n");
+				store_eeprom(calib_eeprom_offset +  0, (uint8_t*)adc_offset,   8);
+				store_eeprom(calib_eeprom_offset +  8, (uint8_t*)adc_gain_neg, 8);
+				store_eeprom(calib_eeprom_offset + 16, (uint8_t*)adc_gain_pos, 8);
+				send(rs232, "\tdone.\n");
 				break;
 
 			case 8:
@@ -705,7 +761,7 @@ int main()
 					rs232.write(0x19);
 					for (int i = 0; i < 4; ++i)
 						send_bin(rs232, get_pot(i));
-					send_bin(rs232, make_byte(sw0.value(), sw1.value(), sw2.value(), sw3.value(), sw4.value(), sw5.value(), 0, sw7.value()));
+					send_bin(rs232, get_buttons());
 					break;
 				case 3:
 					rs232.write(0xFF);
@@ -713,10 +769,10 @@ int main()
 						send_bin(rs232, avrlib::clamp(uint8_t(128+(get_pot(i)>>8)), 0, 254));
 					break;
 				case 4:
-					send_lego(rs232, "a0", float(get_pot(0)/32767.0));
-					send_lego(rs232, "a1", float(get_pot(1)/32767.0));
-					send_lego(rs232, "a2", float(get_pot(2)/32767.0));
-					send_lego(rs232, "a3", float(get_pot(3)/32767.0));
+					send_lego(rs232, "a0", float(get_pot(0))/32767.f);
+					send_lego(rs232, "a1", float(get_pot(1))/32767.f);
+					send_lego(rs232, "a2", float(get_pot(2))/32767.f);
+					send_lego(rs232, "a3", float(get_pot(3))/32767.f);
 					send_lego(rs232, "b0", sw0.read());
 					send_lego(rs232, "b1", sw1.read());
 					//send_lego(rs232, "b2", sw2.read());
@@ -736,7 +792,7 @@ int main()
 			adcs[current_adc].start();
 		}
 
-		if (adcs[4].value() < 39322 && low_battery_timeout)
+		if (adcs[4].value() < low_battery_threshold && low_battery_timeout)
 		{
 			signaller.signal(3, 1500, 1000);
 			low_battery_timeout.restart();

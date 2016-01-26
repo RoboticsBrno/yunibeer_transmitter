@@ -67,21 +67,14 @@ pin<portb, 0> sw7;
 static const uint8_t adc_channels = 5;
 
 async_adc adcs[adc_channels] = {
-	async_adc(4, true),
-	async_adc(5, false),
-	async_adc(6, false),
-	async_adc(7, false),
-	async_adc(0, false)
+	async_adc(4, true , false),
+	async_adc(5, false, false),
+	async_adc(6, false, false),
+	async_adc(7, false, false),
+	async_adc(0, false, true )
 };
 
-int16_t adc_offset[adc_channels] = { 0, 0, 0, 0, 0 };
-int16_t adc_gain_pos[adc_channels] = { 1, 1, 1, 1, 1 };
-int16_t adc_gain_neg[adc_channels] = { 1, 1, 1, 1, 1 };
-
-uint8_t get_buttons()
-{
-	return PINB;
-}
+static const uint16_t low_battery_threshold = 39322;
 
 void hw_init()
 {
