@@ -52,9 +52,9 @@ inv_pin<porte, 3> sw1;
 inv_pin<porte, 4> sw2;
 inv_pin<porte, 5> sw3;
 
-inv_pin<porte, 7> sw4;
+pin    <portb, 2> sw4;
 inv_pin<porte, 6> sw5;
-pin    <portb, 2> sw6;
+inv_pin<porte, 7> sw6;
 pin    <portb, 3> sw7;
 
 static const uint8_t adc_channels = 5;
