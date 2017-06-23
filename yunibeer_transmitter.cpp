@@ -410,7 +410,6 @@ int main()
 
 	bool test_mode = false;
 
-	
 	int send_state = test_mode ? 0 : (get_target_no() + 1); // 0 -- silent, 1 -- text, 2 -- binary, 3 -- PIC interface, 4 -- LEGO protocol
 	uint32_t data_send_timeout_time = 256; // 16.384ms
 	
@@ -457,11 +456,14 @@ int main()
 
 	int32_t cnt = 0;
 
+	uint8_t addr = 255;
+
 	for (;;)
 	{
 		if (!test_mode && !connected && sw7.read())
 		{
-			load_eeprom(addr_eeprom_offset + 6 * get_target_no(send_state - 1), mac_addr, 6);
+			addr = get_target_no(send_state - 1); 
+			load_eeprom(addr_eeprom_offset + 6 * addr, mac_addr, 6);
 			connect(mac_addr);
 			connected = true;
 			cnt = 0;
@@ -590,6 +592,23 @@ int main()
 				rs232.flush();
 			}
 			break;
+
+			case 'a':
+				if(addr == 255)
+				{
+					send(rs232, "I have not used it yet.\n");
+				}
+				else
+				{
+					format(rs232, "last address: %x2 : ") % addr;
+
+					for(uint8_t i = 0; i <= 5; ++i)
+					{
+						format(rs232, "%x2") % mac_addr[i];
+					}
+					rs232.write('\n');
+				}
+				break;
 
 			case 't':
 				rs232.write('t');
