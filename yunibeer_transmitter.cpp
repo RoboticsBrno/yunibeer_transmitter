@@ -12,7 +12,7 @@
 #include "avrlib/stopwatch.hpp"
 #include "avrlib/make_byte.hpp"
 #include "avrlib/adc.hpp"
-#include "avrlib/math.hpp"
+#include "avrlib/math.hpp" 
 
 #include "avrlib/pin.hpp"
 #include "avrlib/porta.hpp"
@@ -312,7 +312,7 @@ uint8_t get_buttons()
 
 uint8_t get_target_no(const uint8_t& bank = 0)
 {
-	return (bank << 3) | make_byte(sw4.value(), sw5.value(), sw6.value());
+	return (bank << 3) | make_byte(sw6.value(), sw5.value(), sw4.value());
 }
 
 template <typename Stream>
@@ -428,6 +428,18 @@ int main()
 		led3.green();
 		data_send_timeout_time = 256*3; // 16.384ms * 3
 		break;
+	case 5:
+		led4.green();
+		break;
+	case 6:
+		led5.green();
+		break;
+	case 7:
+		led6.green();
+		break;
+	case 8:
+		led7.green();
+		break;
 	}
 	
 	load_eeprom(calib_eeprom_offset +  0, (uint8_t*)adc_offset,   8);
@@ -531,6 +543,14 @@ int main()
 					send_state;
 				break;
 				
+			case 'g':
+				format(rs232, "protocol % , address %  ") % send_state % get_target_no(send_state - 1);
+				load_eeprom(addr_eeprom_offset + 6 * get_target_no(send_state - 1), mac_addr, 6);
+				for (uint8_t i = 0; i < 6; ++i)
+					send_hex(rs232, mac_addr[i], 2);
+				send(rs232, "\r\n");
+				break;
+				
 			case 'r':
 				signaller.signal(3, 4000, 3000);
 				break;
@@ -558,6 +578,8 @@ int main()
 			{
 				send(rs232, "insert address index (00 - 3F): ");
 				rs232.flush();
+				for (uint8_t i = 0; i < 6; ++i)
+					mac_addr[i] = 0;
 				uint8_t addr = from_hex_digit(rs232.read())<<4;
 				addr |= from_hex_digit(rs232.read());
 				if(addr > 63)
@@ -702,8 +724,8 @@ int main()
 				}
 				for(uint8_t i = 0; i != 4; ++i)
 				{
-					adc_gain_neg[i] = 32767 / adc_gain_neg[i];
-					adc_gain_pos[i] = 32767 / adc_gain_pos[i];
+					adc_gain_neg[i] = -32767 / adc_gain_neg[i];
+					adc_gain_pos[i] =  32767 / adc_gain_pos[i];
 					format(rs232, "%7 %7 %7 ") % adc_gain_neg[i] % adc_offset[i] % adc_gain_pos[i];
 				}
 				send(rs232, "\r\n");
